@@ -1,0 +1,19 @@
+# 데이터 (용량이 크므로 올리지 않음)
+data/raw/
+data/processed/
+
+# 비밀 정보 (API 인증키)
+.env
+
+# 파이썬 부산물
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# 편집기/OS 파일
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

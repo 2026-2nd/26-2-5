@@ -1,0 +1,10 @@
+pandas
+numpy
+scikit-learn
+lightgbm
+matplotlib
+seaborn
+requests
+python-dotenv
+# 딥러닝(MLP) 가산점용 - 사용할 때 주석 해제
+# torch
