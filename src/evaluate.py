@@ -16,7 +16,8 @@
    - k = 10, 20, 50
 
 기준선: baseline_last_week()로 "지난주 같은 요일·같은 블록의 실제 순유출"을 예측값으로 만든다.
-    python src/evaluate.py --data-dir C:/bike_data/processed --split test
+    python src/evaluate.py --split test          # 기본 폴더: data/processed/
+    python src/evaluate.py --data-dir <다른 폴더> --split test
 """
 import argparse
 from pathlib import Path
@@ -28,7 +29,9 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 KEYS = ["station_id", "date", "block"]
 TARGET = "net_out"
 KS = (10, 20, 50)
-DEFAULT_OUT = Path(__file__).resolve().parent.parent / "results" / "metrics"
+ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DATA = ROOT / "data" / "processed"
+DEFAULT_OUT = ROOT / "results" / "metrics"
 
 
 # ① 회귀 지표 ---------------------------------------------------------------
@@ -106,7 +109,7 @@ def evaluate(df, y_pred, model_name, ks=KS, out_dir=DEFAULT_OUT, save=True):
 def main():
     """기준선 점수를 계산한다."""
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data-dir", required=True, help="train.csv, val.csv, test.csv가 있는 폴더")
+    ap.add_argument("--data-dir", default=str(DEFAULT_DATA), help="train.csv, val.csv, test.csv가 있는 폴더")
     ap.add_argument("--split", default="test", choices=["val", "test"])
     a = ap.parse_args()
 
