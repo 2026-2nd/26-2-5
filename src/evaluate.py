@@ -70,18 +70,22 @@ def baseline_last_week(target_df, history_df):
 def precision_at_k(df, y_pred, ks=KS):
     """날짜x블록마다 예측 상위 k개와 실제 상위 k개가 겹치는 비율을 구해 평균한다.
 
-    순위가 같은 값(동점)은 표의 행 순서대로 앞선 것을 높게 본다 (method="first").
-    모든 모델이 같은 test 표를 쓰므로 동점 처리 기준도 같다.
+    동점 처리: k번째 자리에 같은 값이 여러 개 걸리면, 그중 누가 뽑힐지는 무작위라고 보고
+    "기대 일치율"을 계산한다. 예) 남은 자리 2개에 같은 값 4개가 걸리면 각각 2/4 = 0.5개로 센다.
+    이렇게 하면 표의 행 순서와 관계없이 결과가 같고, 정수 예측(기준선)이 동점 덕을 보지 않는다.
     """
     d = df[["date", "block", TARGET]].copy().reset_index(drop=True)
     d["pred"] = np.asarray(y_pred, dtype=float)
     g = d.groupby(["date", "block"])
     out = {}
     for side, ascending in [("shortage", False), ("surplus", True)]:
-        r_true = g[TARGET].rank(method="first", ascending=ascending)
-        r_pred = g["pred"].rank(method="first", ascending=ascending)
+        ranks = {c: (g[c].rank(method="min", ascending=ascending),    # 1 + 나보다 앞선 개수
+                     g[c].rank(method="max", ascending=ascending))    # 나보다 앞선 개수 + 나와 동점 개수
+                 for c in [TARGET, "pred"]}
         for k in ks:
-            hit = (r_true <= k) & (r_pred <= k)
+            # 각 대여소가 상위 k에 들 확률: 동점 묶음에 남은 자리 / 동점 개수 (0~1로 자름)
+            p = {c: ((k - (lo - 1)) / (hi - lo + 1)).clip(0, 1) for c, (lo, hi) in ranks.items()}
+            hit = p[TARGET] * p["pred"]
             per_block = hit.groupby([d["date"], d["block"]]).sum() / k
             out[f"P@{k}_{side}"] = float(per_block.mean())
     return out

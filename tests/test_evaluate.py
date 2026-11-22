@@ -93,6 +93,30 @@ def test_precision_ignores_index():
     assert p == {"P@2_shortage": 1.0, "P@2_surplus": 0.5}, p
 
 
+def test_precision_ties():
+    # 실제 [5, 3, 3, 3, 1], k=2: 1위는 s0 확정, 남은 1자리를 s1~s3(값 3) 셋이 나눔 → 각 1/3
+    # 예측 상위2 = {s0, s1} → 기대 일치 = (1 + 1/3) / 2 = 2/3
+    df, pred = one_block([5, 3, 3, 3, 1], [5, 4, 2, 1, 0])
+    p = precision_at_k(df, pred, ks=(2,))
+    assert close(p["P@2_shortage"], 2 / 3), p
+    # 예측이 전부 같은 값이면 무작위로 찍는 것과 같음 → 기대 일치 = k/n = 2/5
+    df, pred = one_block([5, 4, 3, 2, 1], [0, 0, 0, 0, 0])
+    p = precision_at_k(df, pred, ks=(2,))
+    assert close(p["P@2_shortage"], 2 / 5) and close(p["P@2_surplus"], 2 / 5), p
+
+
+def test_precision_row_order_independent():
+    # 행 순서를 섞어도 결과가 같아야 함 (동점이 많은 경우)
+    rng = np.random.default_rng(0)
+    true = rng.integers(-3, 4, 200)
+    pred = rng.integers(-3, 4, 200)
+    df, pred = one_block(true, pred)
+    a = precision_at_k(df, pred, ks=(10,))
+    perm = rng.permutation(200)
+    b = precision_at_k(df.iloc[perm], pred[perm], ks=(10,))
+    assert all(close(a[k], b[k]) for k in a), (a, b)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     failed = 0
