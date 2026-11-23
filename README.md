@@ -105,7 +105,7 @@
 
 - 역할 분담: 전처리·피처 엔지니어링·Ridge / EDA·Random Forest·시각화·발표·보고서 / GitHub 관리·평가·LightGBM·MLP
 - 작업은 feature 브랜치에서 하고 PR로 병합한다.
-- 커밋 메시지 규칙: (팀에서 정해 입력)
+- 브랜치, 커밋 메시지, PR, 실험 기록 규칙은 [CONTRIBUTING.md](CONTRIBUTING.md)를 따른다.
 - 마감 후에는 main을 수정하지 않는다.
 
 ## 9. 생성형 AI 사용 내역
