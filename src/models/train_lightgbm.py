@@ -3,6 +3,7 @@
 사용법 (저장소 폴더에서):
     python src/models/train_lightgbm.py                    # 기본 설정 1회 학습, val로 평가
     python src/models/train_lightgbm.py --drop month       # 피처 빼고 학습
+    python src/models/train_lightgbm.py --station          # 대여소 ID를 범주형 피처로 추가해 val 비교
     python src/models/train_lightgbm.py --tune             # 하이퍼파라미터 조합 비교 (val)
     python src/models/train_lightgbm.py --final            # 최종 설정으로 학습 후 test 평가 (설정을 다 정한 뒤 1회만)
 
@@ -12,6 +13,7 @@
   - 1회 학습: results/metrics/LightGBM_<이름>_val.csv
   - --tune:  results/metrics/LightGBM_tuning_val.csv (조합별 점수 표)
   - --final: results/metrics/LightGBM_final_val.csv, LightGBM_final_test.csv
+  - --station --final: results/metrics/LightGBM_station_final_val.csv, LightGBM_station_final_test.csv (최종 모델)
 """
 import argparse
 import itertools
@@ -29,6 +31,7 @@ FEATURES = ["block", "weekday", "month", "is_holiday", "temp_c", "rain_mm", "win
             "lat", "lon", "docks", "net_prev_block", "net_prev_day"]
 CATEGORICAL = ["block", "weekday"]   # 순서보다 "어느 칸이냐"가 중요한 피처
 DEFAULT_DROP = ["month"]             # train에 4~6월이 없어 val/test에서 처음 보는 값이 됨 (1단계 비교 결과 점수 차이 없음)
+STATION = "station_code"             # --station일 때만 쓰는 대여소 번호 (범주형)
 
 PARAMS = {
     "objective": "regression",   # 제곱오차(L2) 최소화 = RMSE 기준
@@ -53,8 +56,15 @@ def load(name, data_dir):
     return pd.read_csv(Path(data_dir) / f"{name}.csv", parse_dates=["date"], dtype={"station_id": str})
 
 
+def add_station_code(train, *others):
+    """station_id를 train 기준 번호로 바꾼 컬럼을 추가한다. train에 없던 대여소는 -1(LightGBM이 결측으로 처리)."""
+    ids = pd.Index(sorted(train["station_id"].unique()))
+    for df in (train, *others):
+        df[STATION] = ids.get_indexer(df["station_id"]).astype("int32")
+
+
 def fit(params, train, val, feats, rounds=3000, log_every=0):
-    cats = [c for c in CATEGORICAL if c in feats]
+    cats = [c for c in CATEGORICAL + [STATION] if c in feats]
     dtrain = lgb.Dataset(train[feats], train[TARGET], categorical_feature=cats, free_raw_data=False)
     dval = lgb.Dataset(val[feats], val[TARGET], categorical_feature=cats, reference=dtrain)
     callbacks = [lgb.early_stopping(50, verbose=False)]
@@ -70,7 +80,7 @@ def run_once(a, feats, train, val):
     model, sec = fit(PARAMS, train, val, feats, log_every=200)
     print(f"학습 {sec:.0f}초, 최적 반복 {model.best_iteration}회")
     pred = model.predict(val[feats], num_iteration=model.best_iteration)
-    name = a.name or ("all" if not a.drop else "no_" + "_".join(a.drop))
+    name = a.name or ("station" if a.station else "all" if not a.drop else "no_" + "_".join(a.drop))
     evaluate(val, pred, model_name=f"LightGBM_{name}_val")
 
     imp = pd.Series(model.feature_importance("gain"), index=feats).sort_values(ascending=False)
@@ -82,9 +92,13 @@ def run_final(feats, train, val, data_dir):
     """최종 설정으로 학습하고 val과 test를 평가한다. test는 이 함수에서만 쓴다."""
     model, sec = fit(PARAMS, train, val, feats, log_every=500)
     print(f"학습 {sec:.0f}초, 최적 반복 {model.best_iteration}회 (상한 3000)")
-    evaluate(val, model.predict(val[feats], num_iteration=model.best_iteration), model_name="LightGBM_final_val")
+    prefix = "LightGBM_station_final" if STATION in feats else "LightGBM_final"
+    evaluate(val, model.predict(val[feats], num_iteration=model.best_iteration), model_name=f"{prefix}_val")
     test = load("test", data_dir)
-    evaluate(test, model.predict(test[feats], num_iteration=model.best_iteration), model_name="LightGBM_final_test")
+    if STATION in feats:
+        add_station_code(train, test)
+        print(f"test에서 train에 없던 대여소 {int((test[STATION] == -1).sum())}행")
+    evaluate(test, model.predict(test[feats], num_iteration=model.best_iteration), model_name=f"{prefix}_test")
 
     imp = pd.Series(model.feature_importance("gain"), index=feats).sort_values(ascending=False)
     print("\n피처 중요도 (gain 비율)")
@@ -121,11 +135,19 @@ def main():
     ap.add_argument("--name", default=None, help="결과 파일 이름 (기본: 뺀 피처로 자동)")
     ap.add_argument("--tune", action="store_true", help="GRID의 조합을 모두 학습해 val 점수 비교")
     ap.add_argument("--final", action="store_true", help="최종 설정으로 학습 후 test까지 평가 (최종 보고용 1회)")
+    ap.add_argument("--station", action="store_true", help="대여소 ID를 범주형 피처로 추가")
     a = ap.parse_args()
+    if a.station and a.tune:
+        ap.error("--station은 --tune과 함께 쓸 수 없다 (기존 튜닝표 덮어쓰기 방지)")
 
     feats = [f for f in FEATURES if f not in a.drop]
+    if a.station:
+        feats.append(STATION)
     print(f"피처 {len(feats)}개: {feats}")
     train, val = load("train", a.data_dir), load("val", a.data_dir)
+    if a.station:
+        add_station_code(train, val)
+        print(f"val에서 train에 없던 대여소 {int((val[STATION] == -1).sum())}행")
     if a.tune:
         run_tune(feats, train, val)
     elif a.final:
